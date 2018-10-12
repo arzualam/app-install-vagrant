@@ -1,0 +1,73 @@
+- hosts : all
+  become: true
+  become_method: sudo
+  gather_facts: False
+  pre_tasks:
+  - name: Install python for Ansible
+    raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+    changed_when: False
+
+  vars:
+    repository_url: https://bitbucket.org/azneita/devops-challenge.git
+    repository_path: /webapps/devops
+
+  tasks :
+
+      - name: Create a folder /webapps/devops
+        file :
+          path: '{{ repository_path }}'
+          state: directory
+
+
+      - name: Install required application
+        apt:
+          update_cache: yes
+          name: '{{ item }}'
+          state: present
+        with_items:
+           - python-pip
+           - git
+           - nginx
+           - supervisor
+
+      - name: Clone the git repository
+        git:
+          repo: '{{ repository_url }}'
+          dest: '{{ repository_path }}'
+
+      - name: Install the packages
+        pip: requirements='{{ repository_path }}/requirements.txt'
+
+      - name: Start UPstart configuration
+        template:
+          src: startapp.j2
+          dest: /etc/supervisor/supervisord.conf
+
+      - name: Reload the supervisorctl
+        service:
+           name: supervisor
+           state: reloaded
+
+      - name: Start the application
+        supervisorctl:
+          name: myapp
+          state: started
+
+      - name: Copy Nginx site
+        template:
+          src: nginx.j2
+          dest: /etc/nginx/sites-enabled/nginx-flask
+        notify:
+          - restart nginx
+
+      - name: Remove any default sites
+        file: path=/etc/nginx/sites-enabled/default state=absent
+        notify:
+          - restart nginx
+
+      - name: Make sure nginx is running
+        service: name=nginx state=started
+
+  handlers:
+      - name: restart nginx
+        service: name=nginx state=restarted
